@@ -6,6 +6,21 @@
 ;*			 Harrison Gregory
 ;*	   Date: 2-20-2025
 ;*
+;*	Dscrp: This program utilized the buttons:
+;*			d7 to increase power level of driven motor
+;*			d6 set power level of driven motor to max
+;*			d4 to decrease power level of driven motor
+;*		
+;*		There are 16 power levels, 0-15:
+;*
+;*		 - CurrPowLevel is represented as a 
+;*		 binary value on LEDs D1 - D4 (D1 is msb)
+;*
+;*		- CurrMotorPower is represented as the total 
+;*		brightness of LEDs D5 - D8 and corresponds to 
+;*		CurrPowLevel
+;*
+;*
 ;***********************************************************
 
 .include "m32U4def.inc"			; Include definition file
@@ -14,11 +29,15 @@
 ;*	Internal Register Definitions and Constants
 ;***********************************************************
 .def	mpr = r16				; Multipurpose register
-
+.def	CurrPowLevel = r24		; User Defined Power Level of motor
+.def	maxPowLevel = 15		; maximum power output level
 .equ	EngEnR = 5				; right Engine Enable Bit
 .equ	EngEnL = 6				; left Engine Enable Bit
 .equ	EngDirR = 4				; right Engine Direction Bit
 .equ	EngDirL = 7				; left Engine Direction Bit
+
+
+
 
 ;***********************************************************
 ;*	Start of Code Segment
@@ -83,11 +102,15 @@ INIT:
 ;*	Main Program
 ;***********************************************************
 MAIN:
-		; poll Port D pushbuttons (if needed)
 
-								; if pressed, adjust speed
-								; also, adjust speed indication
+	; If Power Level Changed: (1 if inc, 2 if dec, 2 if max)
+	; inc CurrPowLevel
+	; dec CurrPowLevel
+	; lti CurrPowLevel, maxPowLevel
+	; FIXME need to implement above ^
+	
 
+		rcall UPDATE_DUTY_SPEED	;Update the indicator LEDs and power driven
 		rjmp	MAIN			; return to top of MAIN
 
 ;***********************************************************
@@ -104,6 +127,34 @@ FUNC:	; Begin a function with a label
 		; If needed, save variables by pushing to the stack
 
 		; Execute the function here
+
+		; Restore any saved variables by popping from stack
+
+		ret						; End a function with RET
+
+;-----------------------------------------------------------
+; Func:	UPDATE_DUTY_SPEED
+;		
+; Desc:	This function takes integer from register  
+;		CurrPowLevel in order to:
+;
+;		1) set LED speed indication of LEDs D1 - D4 to 
+;		binary value between 0-15 to represent the current
+;		power level of the motor.
+;
+;		2) update the duty cycle to output the correct power 
+;		based on speed level from 0 - 15 to the motors. 
+;		This power output is represented by total LED 
+;		brightness of LEDs D5 - D8).
+;-----------------------------------------------------------
+UPDATE_DUTY_SPEED:
+
+		; If needed, save variables by pushing to the stack
+
+		; Execute the function here
+		rcall UPDATE_LEVEL_IND	; Updates LEDs representing power level (0 - 15)
+		rcall UPDATE_POWER_IND	; Updates LEDs brightness respresenting power amount
+		; FIXME need to define these functions
 
 		; Restore any saved variables by popping from stack
 
