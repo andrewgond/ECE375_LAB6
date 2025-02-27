@@ -29,12 +29,27 @@
 ;*	Internal Register Definitions and Constants
 ;***********************************************************
 .def	mpr = r16				; Multipurpose register
-.def	CurrPowLevel = r24		; User Defined Power Level of motor
-.def	maxPowLevel = 15		; maximum power output level
+.def	speedReg = r24		; User Defined Power Level of motor
+.def	waitcnt = r17				; Wait Loop Counter
+.def	ilcnt = r18				; Inner Loop Counter
+.def	olcnt = r19				; Outer Loop Counter
+
+
+.equ	maxSpeed = 15		; maximum power output level
+.equ	minSpeed = 0		;
 .equ	EngEnR = 5				; right Engine Enable Bit
 .equ	EngEnL = 6				; left Engine Enable Bit
 .equ	EngDirR = 4				; right Engine Direction Bit
 .equ	EngDirL = 7				; left Engine Direction Bit
+
+.equ	Right = 4				; Right Whisker Input Bit
+.equ	Left = 5				; Left Whisker Input Bit
+
+.equ	WTime = 50				; Time to wait in wait loop
+.equ	BTime = 50				; Time to backup?
+
+.equ	step = 17
+
 
 
 
@@ -80,38 +95,46 @@ INIT:
 		ldi		mpr, $00		; Initialize Port B Data Register
 		out		PORTB, mpr		; so all Port B outputs are low
 
-		; Configure External Interrupts, if needed
-		ldi mpr, 0b1000_1010		;
-		sts EICRA, mpr				;
-		ldi mpr, 0b0000_1011		;
-		out EIMSK, mpr				; set the mask
-		sei
+		; Initialize Port D for input
+		ldi		mpr, $00		; Set Port D Data Direction Register
+		out		DDRD, mpr		; for input
+		ldi		mpr, $FF		; Initialize Port D Data Register
+		out		PORTD, mpr		; so all Port D inputs are Tri-State
 
 		; Configure 16-bit Timer/Counter 1A and 1B
-		
-
 		; Fast PWM, 8-bit mode, no prescaling
+		ldi mpr, 0b11_11_00_01
+		sts TCCR1A, mpr
 
+		ldi mpr, 0b000_01_001
+		sts TCCR1B, mpr 
+		ldi waitcnt, WTime		;
 		; Set TekBot to Move Forward (1<<EngDirR|1<<EngDirL) on Port B
+		ldi mpr, (1<<EngDirR) | (1<<EngDirL) | (1 << EngEnR) | (1 << EngEnL)
+		out portB, mpr
+
 
 		; Set initial speed, display on Port B pins 3:0
+		ldi speedReg, 0
 
 		; Enable global interrupts (if any are used)
+
 
 ;***********************************************************
 ;*	Main Program
 ;***********************************************************
 MAIN:
+		in		mpr, PIND		; Get Button input from Port D
+		sbrs	mpr, right		; If Right button is high skip next
+		rcall	SPEED_UP		; increment speed and do operation
+		sbrs	mpr, left		; If left button is high skip next
+		rcall	SPEED_DOWN		; Decrement speed and change stuff
+		sbrs	mpr, 6			; Check if Third button is pressed and skip
+		rcall	max_speed		; Turn speed to max
 
-	; If Power Level Changed: (1 if inc, 2 if dec, 2 if max)
-	; inc CurrPowLevel
-	; dec CurrPowLevel
-	; lti CurrPowLevel, maxPowLevel
-	; FIXME need to implement above ^
-	
 
-		rcall UPDATE_DUTY_SPEED	;Update the indicator LEDs and power driven
-		rjmp	MAIN			; return to top of MAIN
+
+	rjmp	MAIN			; return to top of MAIN
 
 ;***********************************************************
 ;*	Functions and Subroutines
@@ -132,33 +155,119 @@ FUNC:	; Begin a function with a label
 
 		ret						; End a function with RET
 
+
+
 ;-----------------------------------------------------------
-; Func:	UPDATE_DUTY_SPEED
-;		
-; Desc:	This function takes integer from register  
-;		CurrPowLevel in order to:
-;
-;		1) set LED speed indication of LEDs D1 - D4 to 
-;		binary value between 0-15 to represent the current
-;		power level of the motor.
-;
-;		2) update the duty cycle to output the correct power 
-;		based on speed level from 0 - 15 to the motors. 
-;		This power output is represented by total LED 
-;		brightness of LEDs D5 - D8).
+; Func:	Template function header
+; Desc:	Cut and paste this and fill in the info at the
+;		beginning of your functions
+;----------------------------------------------------------
+SPEED_UP:
+	push mpr	
+
+	ldi mpr, 15	; Use as temp
+	cp speedREg,MPR	; Check if given speed is the same as 
+	breq UP_SKIP	; If it is skip changing anything
+	
+	inc speedREg	; If not add to speed reg
+	ldi mpr, 0b10010000	; For turning on mov fwd
+	or mpr, speedREg	; Add the current speed level LED
+	out portB, mpr	; Set LEDs to output
+	rcall update_clock	; Set duty cycle based of speed level
+
+UP_SKIP:
+	rcall WAIT
+	pop	mpr
+	ret
+
 ;-----------------------------------------------------------
-UPDATE_DUTY_SPEED:
+; Func:	Template function header
+; Desc:	Cut and paste this and fill in the info at the
+;		beginning of your functions
+;-----------------------------------------------------------
+SPEED_DOWN:
+	push mpr		
+	ldi mpr, 0		; Check edge case
+	cp speedREG, mpr	; check edge case
+	breq DOWN_SKIP	; skip if edge 
 
-		; If needed, save variables by pushing to the stack
+	dec speedREg	; decrement speed reg
+	ldi mpr, 0b10010000 ; turn mov fwd leds
+	or mpr, speedREg	; turn speed LEDs
+	rcall Update_Clock	; update clock
 
-		; Execute the function here
-		rcall UPDATE_LEVEL_IND	; Updates LEDs representing power level (0 - 15)
-		rcall UPDATE_POWER_IND	; Updates LEDs brightness respresenting power amount
-		; FIXME need to define these functions
+	out portB, mpr 
 
-		; Restore any saved variables by popping from stack
 
-		ret						; End a function with RET
+DOWN_SKIP:
+	rcall WAIT
+	pop mpr
+	ret
+
+;-----------------------------------------------------------
+; Func:	Template function header
+; Desc:	Cut and paste this and fill in the info at the
+;		beginning of your functions
+;-----------------------------------------------------------
+MAX_SPEED:
+
+	push mpr
+	ldi speedREg, 15 ; set max speed
+	ldi mpr, 0b10010000	;mv fwd
+	or mpr, speedREg	; update leds
+	out portB, mpr ;display leds
+
+	rcall Update_Clock	;update clk
+
+	rcall WAIT;
+	pop mpr
+	ret
+
+;-----------------------------------------------------------
+; Func:	Update_clock
+; Desc: Update clock params to change duty cycle and such
+;-----------------------------------------------------------
+Update_Clock:
+	push mpr
+	
+	ldi mpr, 17	;Step by 17
+	mul SpeedReg, mpr	; Multiply speed level by 17
+
+	sts OCR1AH, r1	; Set the compare value for A
+	sts OCR1AL, r0	; set compare value for A
+
+	sts OCR1BH, r1	; set compare value for B
+	sts OCR1BL, r0	; Set compare value for B
+
+	pop mpr
+	ret
+
+;----------------------------------------------------------------
+; Sub:	Wait
+; Desc:	A wait loop that is 16 + 159975*waitcnt cycles or roughly
+;		waitcnt*10ms.  Just initialize wait for the specific amount
+;		of time in 10ms intervals. Here is the general eqaution
+;		for the number of clock cycles in the wait loop:
+;			(((((3*ilcnt)-1+4)*olcnt)-1+4)*waitcnt)-1+16
+;----------------------------------------------------------------
+Wait:
+		push	waitcnt			; Save wait register
+		push	ilcnt			; Save ilcnt register
+		push	olcnt			; Save olcnt register
+
+Loop:	ldi		olcnt, 224		; load olcnt register
+OLoop:	ldi		ilcnt, 237		; load ilcnt register
+ILoop:	dec		ilcnt			; decrement ilcnt
+		brne	ILoop			; Continue Inner Loop
+		dec		olcnt		; decrement olcnt
+		brne	OLoop			; Continue Outer Loop
+		dec		waitcnt		; Decrement wait
+		brne	Loop			; Continue Wait loop
+
+		pop		olcnt		; Restore olcnt register
+		pop		ilcnt		; Restore ilcnt register
+		pop		waitcnt		; Restore wait register
+		ret				; Return from subroutine
 
 ;***********************************************************
 ;*	Stored Program Data
